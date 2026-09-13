@@ -1,0 +1,12 @@
+{
+  "id": "drop-gamebox",
+  "name": "GameBox Metadata & Fingerprint Provider",
+  "version": "0.1.0",
+  "description": "Stash-box style fingerprint index and metadata matching service for Drop",
+  "author": "Heretek Games",
+  "apiVersion": 1,
+  "trust": "trusted",
+  "storageVersion": 1,
+  "capabilities": ["routes", "storage", "network"],
+  "entry": "dist/index.js"
+}
