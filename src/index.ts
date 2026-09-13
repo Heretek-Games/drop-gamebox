@@ -1,4 +1,4 @@
-import type { PluginContext, ServerPlugin } from "@drop/plugin-sdk";
+import type { PluginContext, ServerPlugin } from "@droposs/plugin-sdk";
 import { computeBinaryFingerprint } from "./fingerprint.js";
 
 export * from "./fingerprint.js";

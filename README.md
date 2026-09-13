@@ -11,4 +11,4 @@ Inspired by the Stash-box architecture for community identification, GameBox ena
 2. **Identify**: Query federated GameBox indices to resolve game title, release group, executable launch configs, and save file directories automatically.
 3. **Contribute**: Submit verified game configurations and save mappings back to community mirrors.
 
-Built on the `@drop/plugin-sdk`.
+Built on the `@droposs/plugin-sdk`.
