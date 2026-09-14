@@ -18,6 +18,16 @@ function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function comparePaths(a: string, b: string): number {
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
+}
+
 export function normalizeSha256Hex(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -31,10 +41,10 @@ export function normalizeRelativePath(relativePath: string): string {
     throw new TypeError("relativePath must be a string");
   }
   const segments = relativePath
-    .replace(/\\/g, "/")
+    .replaceAll("\\", "/")
     .split("/")
     .filter((segment) => segment !== "" && segment !== ".");
-  if (segments.some((segment) => segment === "..")) {
+  if (segments.includes("..")) {
     throw new Error("relativePath must not contain '..' segments");
   }
   if (segments.length === 0) {
@@ -59,7 +69,7 @@ export function computeDirectoryStructureHash(
         fileHash,
       };
     })
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    .sort((a, b) => comparePaths(a.path, b.path));
 
   for (let i = 1; i < sorted.length; i += 1) {
     if (sorted[i].path === sorted[i - 1].path) {
