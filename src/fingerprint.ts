@@ -10,7 +10,10 @@ export interface GameFingerprint {
 /**
  * Compute SHA-256 fingerprint from buffer.
  */
-export function computeBinaryFingerprint(buffer: Buffer, relativeFilePath: string): GameFingerprint {
+export function computeBinaryFingerprint(
+  buffer: Buffer,
+  relativeFilePath: string,
+): GameFingerprint {
   const hash = createHash("sha256").update(buffer).digest("hex");
   return {
     executableHash: hash,
