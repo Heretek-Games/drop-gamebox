@@ -13,3 +13,28 @@ Inspired by the Stash-box architecture for community identification, GameBox ena
 3. **Contribute**: Submit verified game configurations and save mappings back to community mirrors.
 
 Built on the `@droposs/plugin-sdk`.
+
+## Cloud save locations
+
+GameBox implements the `cloudsave:provider` SPI. Save locations are modelled on
+the [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest) schema
+and served to Drop core via `CloudSavePathResolver`, so installing a known game
+can propose cloud-save locations automatically.
+
+- `POST /save-paths/import` — import a Ludusavi-style `{ title, appId?, hash?, files: [...] }`
+  payload. Each file may be a string or `{ path, platform?, winePrefix?, tags? }`.
+- `POST /contribute` — accepts an optional `savePaths` array alongside the fingerprint.
+- `GET /save-paths?hash=|appId=|title=` — inspect a stored record.
+- Definitions are indexed by hash, app id and normalized title; the resolver
+  returns Windows-applicable patterns for Wine/Proton contexts and filters
+  out anything that would leak a local user path.
+
+## Development
+
+```sh
+npm ci --ignore-scripts
+npm run build
+npm test
+npm run typecheck
+```
+

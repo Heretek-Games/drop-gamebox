@@ -13,6 +13,7 @@ test("drop-gamebox registers the shader-cache routes", async () => {
     "routes",
     "storage",
     "network",
+    "cloudsave:provider",
   ]);
   await new GameBoxPlugin().init(ctx);
   assert.ok(ctx.routes.size >= 4);

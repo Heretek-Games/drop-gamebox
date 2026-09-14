@@ -7,12 +7,14 @@
 ## 1. Architecture
 
 - **`src/fingerprint.ts`**: Core cryptographic fingerprint calculation (SHA-256 binary hashing, file tree normalization).
-- **`src/index.ts`**: Plugin entry point implementing `ServerPlugin` with `/identify` and `/contribute` endpoints.
-- **Capabilities**: `routes`, `storage`, `network`.
+- **`src/savePaths.ts`**: Save-location registry (Ludusavi-style `SavePathDefinition`), validation/sanitization, and `CloudSavePattern` mapping.
+- **`src/index.ts`**: Plugin entry point implementing `ServerPlugin` with `/identify`, `/contribute`, `/save-paths/import`, `/save-paths` and the shader-cache endpoints, plus the `cloudsave:provider` SPI resolver.
+- **Capabilities**: `routes`, `storage`, `network`, `cloudsave:provider`.
 
 ---
 
 ## 2. Invariants
 
 - **Storage Keying**: Fingerprint records must be keyed by lowercase hex SHA-256 string (`fingerprint:<hash>`).
+- **Save-path safety**: Save-location records are keyed by `savepaths:hash:<hash>`, `savepaths:app:<appId>` and `savepaths:title:<normalized>`; definitions must never contain a local user path (`/home/<user>/`, `/Users/<user>/`, `C:\Users\...`) or control characters — `sanitizeSavePath` rejects them.
 - **Data Sanitization**: Ensure contributed metadata never contains local user paths or credentials.

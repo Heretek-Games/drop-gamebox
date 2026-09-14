@@ -40,6 +40,7 @@ test("GameBoxPlugin registers routes, contributes metadata, and identifies match
     "routes",
     "storage",
     "network",
+    "cloudsave:provider",
   ]);
 
   await plugin.init(ctx);
@@ -134,4 +135,79 @@ test("GameBoxPlugin registers routes, contributes metadata, and identifies match
   // Storage is keyed by the normalized lowercase digest
   const stored = await ctx.storage.get(`fingerprint:${testHash}`);
   assert.ok(stored, "fingerprint must be stored under the lowercase digest");
+});
+
+test("GameBoxPlugin resolves cloud-save paths through the SPI", async () => {
+  const plugin = new GameBoxPlugin();
+  const ctx = new MockPluginContext("drop-gamebox", [
+    "routes",
+    "storage",
+    "cloudsave:provider",
+  ]);
+
+  await plugin.init(ctx);
+
+  const resolver = ctx.cloudSaveResolvers.get("drop-gamebox");
+  assert.ok(resolver, "drop-gamebox resolver must be registered");
+
+  assert.deepEqual(
+    await resolver.resolveSavePaths({
+      gameId: "abc",
+      gameTitle: "Unknown Game",
+    }),
+    [],
+  );
+
+  const importRoute = ctx.routes.get("POST /save-paths/import");
+  assert.ok(importRoute, "POST /save-paths/import must be registered");
+
+  await expectStatus(
+    () => importRoute.handler({ body: {} } as any, { params: {}, query: {} }),
+    400,
+  );
+
+  const imported = (await importRoute.handler(
+    {
+      body: {
+        title: "Test Game",
+        appId: 12345,
+        hash: testHash,
+        files: [
+          { path: "<winAppData>/TestGame", platform: "windows" },
+          { path: "<xdgData>/test-game", platform: "linux" },
+        ],
+      },
+    } as any,
+    { params: {}, query: {} },
+  )) as any;
+  assert.equal(imported.success, true);
+  assert.equal(imported.record.paths.length, 2);
+
+  const resolved = await resolver.resolveSavePaths({
+    gameId: "unknown-id",
+    gameTitle: "test   game",
+  });
+  assert.deepEqual(resolved, [
+    { pattern: "<winAppData>/TestGame", platform: "windows" },
+    { pattern: "<xdgData>/test-game", platform: "linux" },
+  ]);
+
+  // Wine/Proton contexts only receive Windows-applicable patterns.
+  const resolvedWine = await resolver.resolveSavePaths({
+    gameId: "unknown-id",
+    gameTitle: "Test Game",
+    winePrefix: "/home/user/.wine",
+  });
+  assert.deepEqual(resolvedWine, [
+    { pattern: "<winAppData>/TestGame", platform: "windows" },
+  ]);
+
+  const lookupRoute = ctx.routes.get("GET /save-paths");
+  assert.ok(lookupRoute, "GET /save-paths must be registered");
+  const lookup = (await lookupRoute.handler({} as any, {
+    params: {},
+    query: { hash: testHash },
+  })) as any;
+  assert.equal(lookup.found, true);
+  assert.equal(lookup.record.title, "Test Game");
 });
