@@ -1,3 +1,4 @@
+import { createError, readBody } from "h3";
 import type { PluginContext, ServerPlugin } from "@droposs/plugin-sdk";
 import {
   mergeShaderCache,
@@ -5,6 +6,7 @@ import {
   shaderCacheKey,
   type ShaderCacheIndex,
 } from "./shaderCache.js";
+import { normalizeSha256Hex } from "./fingerprint.js";
 
 export * from "./fingerprint.js";
 export * from "./shaderCache.js";
@@ -14,15 +16,17 @@ async function getRequestBody<T = any>(event: any): Promise<T> {
     return event.body;
   }
   try {
-    // @ts-ignore
-    const h3 = await import("h3").catch(() => null);
-    if (h3?.readBody) {
-      return (await h3.readBody(event)) || ({} as T);
-    }
-    return (event?.body || {}) as T;
+    return ((await readBody(event)) ?? ({} as T)) as T;
   } catch {
     return (event?.body || {}) as T;
   }
+}
+
+function invalidSha256Error(field: string) {
+  return createError({
+    statusCode: 400,
+    statusMessage: `${field} must be a 64-character hex SHA-256 digest`,
+  });
 }
 
 export default class GameBoxPlugin implements ServerPlugin {
@@ -40,9 +44,9 @@ export default class GameBoxPlugin implements ServerPlugin {
     // REST: Identify a game from hash
     ctx.registerRoute("POST", "/identify", async (event, routeCtx) => {
       const body = await getRequestBody(event);
-      const hash = (routeCtx.query.hash as string | undefined) ?? body?.hash;
+      const hash = normalizeSha256Hex(routeCtx.query.hash ?? body?.hash);
       if (!hash) {
-        return { error: "Missing hash parameter" };
+        throw invalidSha256Error("hash");
       }
       const match = await ctx.storage.get(`fingerprint:${hash}`);
       return match ? { matched: true, game: match } : { matched: false };
@@ -51,10 +55,17 @@ export default class GameBoxPlugin implements ServerPlugin {
     // REST: Contribute fingerprint metadata
     ctx.registerRoute("POST", "/contribute", async (event) => {
       const body = await getRequestBody(event);
-      const { hash, title, appId, releaseGroup, savePaths } = (body ||
+      const { hash: rawHash, title, appId, releaseGroup, savePaths } = (body ||
         {}) as any;
-      if (!hash || !title) {
-        return { error: "hash and title are required" };
+      if (!title) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: "title is required",
+        });
+      }
+      const hash = normalizeSha256Hex(rawHash);
+      if (!hash) {
+        throw invalidSha256Error("hash");
       }
       const record = {
         title,
