@@ -10,7 +10,7 @@
 - **`src/savePaths.ts`**: Save-location registry (Ludusavi-style `SavePathDefinition`), validation/sanitization, and `CloudSavePattern` mapping.
 - **`src/snapshot.ts`**: Verifiable index snapshots and mirror merge (`buildSnapshot` / `verifySnapshot` / `mergeSnapshot`), HMAC-SHA256 signed with `GAMEBOX_MIRROR_SECRET`.
 - **`src/moderation.ts`**: Contribution review queue controls — `GAMEBOX_MODERATION_REQUIRED` / `GAMEBOX_MODERATION_TOKEN`, fail-closed moderator authorization, and constant-time token comparison.
-- **`src/index.ts`**: Plugin entry point implementing `ServerPlugin` with `/identify`, `/contribute`, `/save-paths/import`, `/save-paths`, `/index/*`, `/moderation/*` and the shader-cache endpoints, plus the `cloudsave:provider` SPI resolver.
+- **`src/index.ts`**: Plugin entry point implementing `ServerPlugin` with `/identify` + `/identify/batch`, `/contribute` (optional bounded `recipe`), `/save-paths/import`, `/save-paths`, `/index/*`, `/moderation/*` and the shader-cache endpoints, plus the `cloudsave:provider` SPI resolver.
 - **Capabilities**: `routes`, `storage`, `network`, `cloudsave:provider`.
 
 ---

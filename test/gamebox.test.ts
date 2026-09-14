@@ -277,3 +277,69 @@ test("GameBoxPlugin serves and merges index snapshots", async () => {
   assert.equal(stats.fingerprints, 2);
 });
 
+
+test("contribute stores a recipe and batch identify resolves many hashes", async () => {
+  const plugin = new GameBoxPlugin();
+  const ctx = new MockPluginContext("drop-gamebox", [
+    "routes",
+    "storage",
+    "network",
+    "cloudsave:provider",
+  ]);
+  await plugin.init(ctx);
+
+  const contribute = ctx.routes.get("POST /contribute");
+  const identify = ctx.routes.get("POST /identify");
+  const batch = ctx.routes.get("POST /identify/batch");
+  assert.ok(contribute && identify && batch);
+
+  const recipe = { steps: [{ action: "extract_iso" }] };
+  await contribute.handler(
+    { body: { hash: testHash, title: "With Recipe", recipe } } as any,
+    { params: {}, query: {} },
+  );
+  const match = (await identify.handler(
+    { body: { hash: testHash } } as any,
+    { params: {}, query: {} },
+  )) as any;
+  assert.equal(match.matched, true);
+  assert.deepEqual(match.game.recipe, recipe);
+
+  await expectStatus(
+    () =>
+      contribute.handler(
+        { body: { hash: testHash, title: "Bad", recipe: "nope" } } as any,
+        { params: {}, query: {} },
+      ),
+    400,
+  );
+
+  const other = "2".repeat(64);
+  await contribute.handler(
+    { body: { hash: other, title: "Other" } } as any,
+    { params: {}, query: {} },
+  );
+
+  const resolved = (await batch.handler(
+    { body: { hashes: [testHash, other, "not-a-hash"] } } as any,
+    { params: {}, query: {} },
+  )) as any;
+  assert.equal(resolved.count, 3);
+  assert.equal(resolved.results[0].matched, true);
+  assert.equal(resolved.results[1].matched, true);
+  assert.equal(resolved.results[2].matched, false);
+  assert.equal(resolved.results[2].error, "invalid hash");
+
+  await expectStatus(
+    () => batch.handler({ body: { hashes: "nope" } } as any, { params: {}, query: {} }),
+    400,
+  );
+  await expectStatus(
+    () =>
+      batch.handler(
+        { body: { hashes: new Array(101).fill(testHash) } } as any,
+        { params: {}, query: {} },
+      ),
+    400,
+  );
+});

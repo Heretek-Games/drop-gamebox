@@ -41,6 +41,34 @@ export * from "./snapshot.js";
 
 const FINGERPRINT_PREFIX = "fingerprint:";
 const PENDING_PREFIX = "pending:";
+const MAX_RECIPE_BYTES = 64 * 1024;
+
+/** Validate an optional recommended install recipe (a JSON object/array). */
+function normalizeRecipe(value: unknown): unknown | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object") {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "recipe must be a JSON object or array",
+    });
+  }
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "recipe must be serializable JSON",
+    });
+  }
+  if (serialized.length > MAX_RECIPE_BYTES) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "recipe must be at most 64 KiB",
+    });
+  }
+  return value;
+}
 
 /** Operator-configured mirror signing secret, if any. */
 function readMirrorSecret(): string | undefined {
@@ -128,6 +156,7 @@ interface ContributionRecord {
   appId?: string | number;
   releaseGroup?: string;
   savePaths?: unknown;
+  recipe?: unknown;
   updatedAt: number;
 }
 
@@ -195,11 +224,53 @@ export default class GameBoxPlugin implements ServerPlugin {
       return match ? { matched: true, game: match } : { matched: false };
     });
 
+    // REST: Identify many fingerprints in one request (library scans)
+    ctx.registerRoute("POST", "/identify/batch", async (event) => {
+      const body = await getRequestBody(event);
+      const hashes = (body as { hashes?: unknown })?.hashes;
+      if (!Array.isArray(hashes)) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: "hashes must be an array",
+        });
+      }
+      if (hashes.length > 100) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: "at most 100 hashes per request",
+        });
+      }
+
+      const results = [];
+      for (const raw of hashes) {
+        const hash = normalizeSha256Hex(raw);
+        if (!hash) {
+          results.push({ hash: null, matched: false, error: "invalid hash" });
+          continue;
+        }
+        const match = await ctx.storage.get<Record<string, unknown>>(
+          `fingerprint:${hash}`,
+        );
+        results.push({
+          hash,
+          matched: Boolean(match),
+          game: match ?? null,
+        });
+      }
+      return { results, count: results.length };
+    });
+
     // REST: Contribute fingerprint metadata
     ctx.registerRoute("POST", "/contribute", async (event) => {
       const body = await getRequestBody(event);
-      const { hash: rawHash, title, appId, releaseGroup, savePaths } = (body ||
-        {}) as any;
+      const {
+        hash: rawHash,
+        title,
+        appId,
+        releaseGroup,
+        savePaths,
+        recipe: rawRecipe,
+      } = (body || {}) as any;
       if (!title) {
         throw createError({
           statusCode: 400,
@@ -210,11 +281,13 @@ export default class GameBoxPlugin implements ServerPlugin {
       if (!hash) {
         throw invalidSha256Error("hash");
       }
+      const recipe = normalizeRecipe(rawRecipe);
       const record = {
         title,
         appId,
         releaseGroup,
         savePaths,
+        ...(recipe !== undefined ? { recipe } : {}),
         updatedAt: Date.now(),
       };
       if (moderationRequired()) {

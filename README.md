@@ -14,6 +14,14 @@ Inspired by the Stash-box architecture for community identification, GameBox ena
 
 Built on the `@droposs/plugin-sdk`.
 
+## Identification
+
+`POST /identify` resolves a SHA-256 fingerprint to a stored record that can
+include a recommended install `recipe` (a JSON object/array up to 64 KiB) and
+save locations. `POST /identify/batch` resolves up to 100 fingerprints in a
+single request (for library scans), reporting an error entry per malformed
+hash.
+
 ## Cloud save locations
 
 GameBox implements the `cloudsave:provider` SPI. Save locations are modelled on
