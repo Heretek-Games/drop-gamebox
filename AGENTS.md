@@ -8,7 +8,8 @@
 
 - **`src/fingerprint.ts`**: Core cryptographic fingerprint calculation (SHA-256 binary hashing, file tree normalization).
 - **`src/savePaths.ts`**: Save-location registry (Ludusavi-style `SavePathDefinition`), validation/sanitization, and `CloudSavePattern` mapping.
-- **`src/index.ts`**: Plugin entry point implementing `ServerPlugin` with `/identify`, `/contribute`, `/save-paths/import`, `/save-paths` and the shader-cache endpoints, plus the `cloudsave:provider` SPI resolver.
+- **`src/snapshot.ts`**: Verifiable index snapshots and mirror merge (`buildSnapshot` / `verifySnapshot` / `mergeSnapshot`), HMAC-SHA256 signed with `GAMEBOX_MIRROR_SECRET`.
+- **`src/index.ts`**: Plugin entry point implementing `ServerPlugin` with `/identify`, `/contribute`, `/save-paths/import`, `/save-paths`, `/index/*` and the shader-cache endpoints, plus the `cloudsave:provider` SPI resolver.
 - **Capabilities**: `routes`, `storage`, `network`, `cloudsave:provider`.
 
 ---

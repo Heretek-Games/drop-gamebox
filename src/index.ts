@@ -18,10 +18,27 @@ import {
   toCloudSavePatterns,
   type SaveLocationRecord,
 } from "./savePaths.js";
+import {
+  GAMEBOX_MIRROR_SECRET_ENV,
+  buildSnapshot,
+  mergeSnapshot,
+  verifySnapshot,
+  type IndexEntry,
+  type IndexSnapshot,
+} from "./snapshot.js";
 
 export * from "./fingerprint.js";
 export * from "./savePaths.js";
 export * from "./shaderCache.js";
+export * from "./snapshot.js";
+
+const FINGERPRINT_PREFIX = "fingerprint:";
+
+/** Operator-configured mirror signing secret, if any. */
+function readMirrorSecret(): string | undefined {
+  const secret = process.env[GAMEBOX_MIRROR_SECRET_ENV];
+  return secret && secret.trim().length > 0 ? secret : undefined;
+}
 
 interface SaveLocationContribution {
   title: string;
@@ -205,6 +222,78 @@ export default class GameBoxPlugin implements ServerPlugin {
       }
       const record = await ctx.storage.get<SaveLocationRecord>(key);
       return record ? { found: true, record } : { found: false };
+    });
+
+    // REST: Signed, portable index snapshot for mirroring
+    ctx.registerRoute("GET", "/index/snapshot", async () => {
+      const keys = await ctx.storage.listKeys();
+      const entries: IndexEntry[] = [];
+      for (const key of keys) {
+        if (!key.startsWith(FINGERPRINT_PREFIX)) continue;
+        const record = await ctx.storage.get<Record<string, unknown>>(key);
+        if (record) {
+          entries.push({ hash: key.slice(FINGERPRINT_PREFIX.length), record });
+        }
+      }
+      return buildSnapshot(entries, readMirrorSecret());
+    });
+
+    // REST: Incrementally merge a mirrored snapshot into this index
+    ctx.registerRoute("POST", "/index/sync", async (event) => {
+      const body = await getRequestBody(event);
+      const snapshot = ((body as { snapshot?: IndexSnapshot })?.snapshot ??
+        body) as IndexSnapshot;
+      if (!snapshot || !Array.isArray(snapshot.entries)) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: "snapshot.entries is required",
+        });
+      }
+
+      const secret = readMirrorSecret();
+      const verification = verifySnapshot(snapshot, secret);
+      if (!verification.valid) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: verification.reason ?? "invalid snapshot",
+        });
+      }
+
+      const keys = await ctx.storage.listKeys();
+      const local: IndexEntry[] = [];
+      for (const key of keys) {
+        if (!key.startsWith(FINGERPRINT_PREFIX)) continue;
+        const record = await ctx.storage.get<Record<string, unknown>>(key);
+        if (record) {
+          local.push({ hash: key.slice(FINGERPRINT_PREFIX.length), record });
+        }
+      }
+
+      const result = mergeSnapshot(local, snapshot.entries);
+      for (const entry of result.merged) {
+        await ctx.storage.set(`${FINGERPRINT_PREFIX}${entry.hash}`, entry.record);
+      }
+
+      return {
+        success: true,
+        verification,
+        added: result.added,
+        updated: result.updated,
+        skipped: result.skipped,
+        total: result.merged.length,
+      };
+    });
+
+    // REST: Index size summary
+    ctx.registerRoute("GET", "/index/stats", async () => {
+      const keys = await ctx.storage.listKeys();
+      const fingerprints = keys.filter((key) =>
+        key.startsWith(FINGERPRINT_PREFIX),
+      ).length;
+      const saveLocations = keys.filter((key) =>
+        key.startsWith(SAVE_LOCATION_HASH_PREFIX),
+      ).length;
+      return { fingerprints, saveLocations, signed: Boolean(readMirrorSecret()) };
     });
 
     // REST: Contribute a warmed DXVK/VKD3D shader cache

@@ -29,6 +29,19 @@ can propose cloud-save locations automatically.
   returns Windows-applicable patterns for Wine/Proton contexts and filters
   out anything that would leak a local user path.
 
+## Mirroring
+
+GameBox indexes can be mirrored so instances do not depend on a single central
+server.
+
+- `GET /index/snapshot` — a deterministic, checksummed snapshot
+  (`formatVersion`, `generatedAt`, `entries`, `checksum`), HMAC-SHA256 signed
+  when `GAMEBOX_MIRROR_SECRET` is set.
+- `POST /index/sync` — verifies and incrementally merges a snapshot (newest
+  `updatedAt` wins). Unsigned snapshots are rejected when a secret is
+  configured, so mirrors are trusted by default.
+- `GET /index/stats` — fingerprint/save-location counts and signing status.
+
 ## Development
 
 ```sh

@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MockPluginContext } from "@droposs/plugin-sdk";
-import GameBoxPlugin, { computeBinaryFingerprint } from "../src/index.js";
+import GameBoxPlugin, {
+  buildSnapshot,
+  computeBinaryFingerprint,
+} from "../src/index.js";
 
 const testHash =
   "abcd1234ef567890abcd1234ef567890abcd1234ef567890abcd1234ef567890";
@@ -211,3 +214,66 @@ test("GameBoxPlugin resolves cloud-save paths through the SPI", async () => {
   assert.equal(lookup.found, true);
   assert.equal(lookup.record.title, "Test Game");
 });
+
+test("GameBoxPlugin serves and merges index snapshots", async () => {
+  const plugin = new GameBoxPlugin();
+  const ctx = new MockPluginContext("drop-gamebox", [
+    "routes",
+    "storage",
+    "network",
+    "cloudsave:provider",
+  ]);
+  await plugin.init(ctx);
+
+  const contribute = ctx.routes.get("POST /contribute");
+  assert.ok(contribute);
+  await contribute.handler(
+    { body: { hash: testHash, title: "Test Game", appId: 1 } } as any,
+    { params: {}, query: {} },
+  );
+
+  const snapshotRoute = ctx.routes.get("GET /index/snapshot");
+  assert.ok(snapshotRoute);
+  const snapshot = (await snapshotRoute.handler({} as any, {
+    params: {},
+    query: {},
+  })) as any;
+  assert.equal(snapshot.formatVersion, 1);
+  assert.equal(snapshot.entries.length, 1);
+  assert.equal(snapshot.entries[0].hash, testHash);
+
+  const syncRoute = ctx.routes.get("POST /index/sync");
+  assert.ok(syncRoute);
+
+  const otherHash = "1".repeat(64);
+  const incoming = buildSnapshot([
+    { hash: otherHash, record: { title: "Other", updatedAt: Date.now() } },
+  ]);
+  const merged = (await syncRoute.handler(
+    { body: { snapshot: incoming } } as any,
+    { params: {}, query: {} },
+  )) as any;
+  assert.equal(merged.success, true);
+  assert.equal(merged.added, 1);
+  assert.equal(merged.total, 2);
+
+  // A tampered snapshot is rejected before any write.
+  const tampered = {
+    ...incoming,
+    entries: [{ hash: "2".repeat(64), record: { title: "Evil" } }],
+  };
+  await expectStatus(
+    () =>
+      syncRoute.handler({ body: { snapshot: tampered } } as any, {
+        params: {},
+        query: {},
+      }),
+    403,
+  );
+
+  const stats = (await ctx.routes
+    .get("GET /index/stats")!
+    .handler({} as any, { params: {}, query: {} })) as any;
+  assert.equal(stats.fingerprints, 2);
+});
+
