@@ -26,19 +26,50 @@ import {
   type IndexEntry,
   type IndexSnapshot,
 } from "./snapshot.js";
+import {
+  bearerToken,
+  configureModerationToken,
+  isModeratorAuthorized,
+  moderationRequired,
+} from "./moderation.js";
 
 export * from "./fingerprint.js";
+export * from "./moderation.js";
 export * from "./savePaths.js";
 export * from "./shaderCache.js";
 export * from "./snapshot.js";
 
 const FINGERPRINT_PREFIX = "fingerprint:";
+const PENDING_PREFIX = "pending:";
 
 /** Operator-configured mirror signing secret, if any. */
 function readMirrorSecret(): string | undefined {
   const secret = process.env[GAMEBOX_MIRROR_SECRET_ENV];
   return secret && secret.trim().length > 0 ? secret : undefined;
 }
+
+/** Read the `Authorization` header from a plugin route event. */
+function readAuthorization(event: unknown): string | undefined {
+  const headers = (event as { headers?: unknown } | null)?.headers;
+  if (headers && typeof (headers as Headers).get === "function") {
+    return (headers as Headers).get("authorization") ?? undefined;
+  }
+  if (headers && typeof headers === "object") {
+    const record = headers as Record<string, unknown>;
+    const value = record["authorization"] ?? record["Authorization"];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
+/** Whether the request carries the configured moderator token. */
+function authorizedModerator(event: unknown): boolean {
+  return isModeratorAuthorized(
+    bearerToken(readAuthorization(event)),
+    configureModerationToken(),
+  );
+}
+
 
 interface SaveLocationContribution {
   title: string;
@@ -90,6 +121,32 @@ async function lookupSaveLocation(
     }
   }
   return null;
+}
+
+interface ContributionRecord {
+  title: string;
+  appId?: string | number;
+  releaseGroup?: string;
+  savePaths?: unknown;
+  updatedAt: number;
+}
+
+/** Publish a validated fingerprint record and its save locations. */
+async function publishRecord(
+  ctx: PluginContext,
+  hash: string,
+  record: ContributionRecord,
+): Promise<void> {
+  await ctx.storage.set(`${FINGERPRINT_PREFIX}${hash}`, record);
+  if (record.savePaths !== undefined) {
+    await persistSaveLocations(ctx, {
+      title: record.title,
+      appId: record.appId,
+      hash,
+      rawPaths: record.savePaths,
+      source: "contribute",
+    });
+  }
 }
 
 async function getRequestBody<T = any>(event: any): Promise<T> {
@@ -160,17 +217,80 @@ export default class GameBoxPlugin implements ServerPlugin {
         savePaths,
         updatedAt: Date.now(),
       };
-      await ctx.storage.set(`fingerprint:${hash}`, record);
-      if (savePaths !== undefined) {
-        await persistSaveLocations(ctx, {
-          title,
-          appId,
+      if (moderationRequired()) {
+        await ctx.storage.set(`${PENDING_PREFIX}${hash}`, {
           hash,
-          rawPaths: savePaths,
-          source: "contribute",
+          record,
+          submittedAt: Date.now(),
+        });
+        return { success: true, pending: true, record };
+      }
+      await publishRecord(ctx, hash, record);
+      return { success: true, record };
+    });
+
+    // REST: moderation queue and decisions (operator token required)
+    ctx.registerRoute("GET", "/moderation/queue", async (event) => {
+      if (!authorizedModerator(event)) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: "Moderator token required",
         });
       }
-      return { success: true, record };
+      const keys = await ctx.storage.listKeys();
+      const pending: unknown[] = [];
+      for (const key of keys.filter((candidate) =>
+        candidate.startsWith(PENDING_PREFIX),
+      )) {
+        const entry = await ctx.storage.get(key);
+        if (entry) pending.push(entry);
+      }
+      return { pending, count: pending.length };
+    });
+
+    ctx.registerRoute("POST", "/moderation/approve", async (event) => {
+      if (!authorizedModerator(event)) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: "Moderator token required",
+        });
+      }
+      const body = await getRequestBody(event);
+      const hash = normalizeSha256Hex((body as { hash?: string })?.hash);
+      if (!hash) throw invalidSha256Error("hash");
+      const key = `${PENDING_PREFIX}${hash}`;
+      const entry = await ctx.storage.get<{ record: ContributionRecord }>(key);
+      if (!entry) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: "No pending contribution for that hash",
+        });
+      }
+      await publishRecord(ctx, hash, entry.record);
+      await ctx.storage.delete(key);
+      return { success: true, published: hash };
+    });
+
+    ctx.registerRoute("POST", "/moderation/reject", async (event) => {
+      if (!authorizedModerator(event)) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: "Moderator token required",
+        });
+      }
+      const body = await getRequestBody(event);
+      const hash = normalizeSha256Hex((body as { hash?: string })?.hash);
+      if (!hash) throw invalidSha256Error("hash");
+      const key = `${PENDING_PREFIX}${hash}`;
+      const entry = await ctx.storage.get(key);
+      if (!entry) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: "No pending contribution for that hash",
+        });
+      }
+      await ctx.storage.delete(key);
+      return { success: true, rejected: hash };
     });
 
     // REST: Import save locations from a Ludusavi-style `{ files: [...] }` payload

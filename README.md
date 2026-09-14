@@ -42,6 +42,18 @@ server.
   configured, so mirrors are trusted by default.
 - `GET /index/stats` — fingerprint/save-location counts and signing status.
 
+## Moderation
+
+Operators can require review before a contribution reaches the shared index:
+
+- `GAMEBOX_MODERATION_REQUIRED=true` — `POST /contribute` queues the entry as
+  pending instead of publishing it.
+- `GAMEBOX_MODERATION_TOKEN=<secret>` — required for the moderation routes;
+  when unset moderation is fail-closed (no route is authorized).
+- `GET /moderation/queue` lists pending entries; `POST /moderation/approve`
+  and `POST /moderation/reject` take `{ hash }` and publish or discard the
+  entry. Approving also publishes its save locations.
+
 ## Development
 
 ```sh
