@@ -7,6 +7,6 @@
   "apiVersion": 2,
   "trust": "trusted",
   "storageVersion": 1,
-  "capabilities": ["routes", "storage", "network"],
+  "capabilities": ["routes", "storage", "cloudsave:provider"],
   "entry": "dist/src/index.js"
 }

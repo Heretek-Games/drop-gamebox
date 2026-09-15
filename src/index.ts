@@ -205,7 +205,6 @@ export default class GameBoxPlugin implements ServerPlugin {
     capabilities: [
       "routes" as const,
       "storage" as const,
-      "network" as const,
       "cloudsave:provider" as const,
     ],
   };
